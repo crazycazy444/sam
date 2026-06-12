@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Clipper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6">
+        <h1 class="text-3xl font-bold mb-6 text-center text-blue-600">AI Video Clipper</h1>
+
+        <div class="mb-6">
+            <label for="url" class="block text-sm font-medium text-gray-700 mb-2">YouTube Video URL</label>
+            <div class="flex gap-2">
+                <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..."
+                    class="flex-1 border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="processBtn" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition">
+                    Clip Video
+                </button>
+            </div>
+        </div>
+
+        <div id="statusContainer" class="hidden mb-6 p-4 border rounded-md bg-blue-50">
+            <div class="flex items-center gap-3">
+                <div class="loading-spinner"></div>
+                <div>
+                    <p id="statusText" class="font-semibold text-blue-800">Processing...</p>
+                    <p id="statusDetail" class="text-sm text-blue-600">Starting...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="results" class="space-y-6">
+            <!-- Clips will be added here -->
+        </div>
+    </div>
+
+    <script>
+        const processBtn = document.getElementById('processBtn');
+        const urlInput = document.getElementById('url');
+        const statusContainer = document.getElementById('statusContainer');
+        const statusText = document.getElementById('statusText');
+        const statusDetail = document.getElementById('statusDetail');
+        const resultsContainer = document.getElementById('results');
+
+        let intervalId = null;
+
+        processBtn.addEventListener('click', async () => {
+            const url = urlInput.value.trim();
+            if (!url) return alert('Please enter a YouTube URL');
+
+            processBtn.disabled = true;
+            processBtn.classList.add('opacity-50');
+            resultsContainer.innerHTML = '';
+            statusContainer.classList.remove('hidden');
+            statusText.innerText = 'Processing...';
+            statusDetail.innerText = 'Submitting job...';
+
+            try {
+                const response = await fetch('/api/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                const data = await response.json();
+                const jobId = data.job_id;
+
+                pollStatus(jobId);
+            } catch (err) {
+                console.error(err);
+                alert('Error starting process');
+                resetUI();
+            }
+        });
+
+        function pollStatus(jobId) {
+            intervalId = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/jobs/${jobId}`);
+                    const job = await response.json();
+
+                    statusDetail.innerText = `Current step: ${job.status}`;
+
+                    if (job.clips && job.clips.length > 0) {
+                        renderClips(job.clips);
+                    }
+
+                    if (job.status === 'completed') {
+                        clearInterval(intervalId);
+                        statusContainer.classList.add('hidden');
+                        statusText.innerText = 'Completed!';
+                        processBtn.disabled = false;
+                        processBtn.classList.remove('opacity-50');
+                    } else if (job.status === 'failed') {
+                        clearInterval(intervalId);
+                        statusText.innerText = 'Failed';
+                        statusDetail.innerText = job.error || 'Unknown error';
+                        processBtn.disabled = false;
+                        processBtn.classList.remove('opacity-50');
+                    }
+                } catch (err) {
+                    console.error('Polling error:', err);
+                }
+            }, 2000);
+        }
+
+        function renderClips(clips) {
+            // Only render if number of clips changed or first time
+            if (resultsContainer.children.length === clips.length) return;
+
+            resultsContainer.innerHTML = '<h2 class="text-xl font-bold mb-4">Generated Clips</h2>';
+            clips.forEach((clip, index) => {
+                const clipEl = document.createElement('div');
+                clipEl.className = 'border rounded-lg overflow-hidden bg-gray-50';
+                clipEl.innerHTML = `
+                    <div class="p-4">
+                        <h3 class="font-bold mb-2">Clip #${index + 1}</h3>
+                        <video controls class="w-full max-h-[500px] bg-black">
+                            <source src="${clip.url}" type="video/mp4">
+                        </video>
+                        <p class="mt-2 text-sm text-gray-600 italic">"${clip.text}"</p>
+                        <a href="${clip.url}" download class="inline-block mt-3 text-blue-600 font-medium hover:underline">
+                            Download Clip
+                        </a>
+                    </div>
+                `;
+                resultsContainer.appendChild(clipEl);
+            });
+        }
+
+        function resetUI() {
+            processBtn.disabled = false;
+            processBtn.classList.remove('opacity-50');
+            statusContainer.classList.add('hidden');
+            if (intervalId) clearInterval(intervalId);
+        }
+    </script>
+</body>
+</html>
