@@ -23,8 +23,13 @@ async def get_job_status(job_id: str):
 async def run_processing_task(job_id: str, url: str):
     jobs[job_id] = {"status": "downloading", "clips": []}
     try:
+        # Use /tmp for serverless environments
+        tmp_dir = "/tmp"
+        downloads_dir = os.path.join(tmp_dir, "downloads")
+        outputs_dir = "/tmp/outputs"
+
         # 1. Download
-        video_path = download_video(url)
+        video_path = download_video(url, output_dir=downloads_dir)
 
         # 2. Transcribe
         jobs[job_id]["status"] = "transcribing"
@@ -38,7 +43,6 @@ async def run_processing_task(job_id: str, url: str):
         jobs[job_id]["status"] = "processing_clips"
         processed_clips = []
         for i, seg in enumerate(segments):
-            # Limit to 3 clips for demo/speed
             if i >= 3: break
 
             clip_filename = process_clip(
@@ -46,7 +50,8 @@ async def run_processing_task(job_id: str, url: str):
                 seg['start'],
                 seg['end'],
                 seg['text'],
-                transcription.get('segments', [])
+                transcription.get('segments', []),
+                output_dir=outputs_dir
             )
             processed_clips.append({
                 "filename": clip_filename,
@@ -57,7 +62,6 @@ async def run_processing_task(job_id: str, url: str):
 
         jobs[job_id]["status"] = "completed"
 
-        # Cleanup original download
         if os.path.exists(video_path):
             os.remove(video_path)
 
@@ -72,6 +76,11 @@ async def process_video(request: VideoRequest, background_tasks: BackgroundTasks
     background_tasks.add_task(run_processing_task, job_id, request.url)
     return {"job_id": job_id}
 
-# Serve processed clips
-app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# In a real Vercel deployment, outputs would be uploaded to S3/Cloudinary.
+# Here we ensure the directory exists for local testing/demonstration.
+@app.on_event("startup")
+async def startup_event():
+    os.makedirs("/tmp/outputs", exist_ok=True)
+
+if os.path.exists("/tmp/outputs"):
+    app.mount("/outputs", StaticFiles(directory="/tmp/outputs"), name="outputs")

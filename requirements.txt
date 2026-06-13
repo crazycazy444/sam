@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+yt-dlp
+moviepy
+openai-whisper
+openai
+python-dotenv
+gTTS
+python-multipart
+aiofiles
+imageio-ffmpeg
+pysrt
+torch
